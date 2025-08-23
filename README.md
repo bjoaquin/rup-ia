@@ -17,4 +17,4 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-4) En el navegador, elegí la liga con BONUS, subí o indicá la ruta del CSV, y empezá a jugar.
+4) En el navegador, elegí la liga con BONUS y empezá a jugar.
