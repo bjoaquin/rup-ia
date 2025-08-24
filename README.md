@@ -4,6 +4,7 @@
 ## Cómo ejecutar
 1) Asegurate de tener en la misma carpeta:
    - `interactive_assignment.py` (con la clase `SequentialAssigner`)
+   - `hungaro.py` (con la función `resolver_asignacion_optima`)
    - `goles_250812.csv`
    - `policy_premier.npy`, `policy_laliga.npy`, `policy_seriea.npy`, `policy_bundesliga.npy`, `policy_ligue1.npy`, `policy_eredivisie.npy`
 
