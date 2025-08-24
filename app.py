@@ -11,6 +11,12 @@ try:
 except Exception as e:
     st.error("No pude importar 'interactive_assignment.SequentialAssigner'. Asegurate de que el archivo interactive_assignment.py esté en la misma carpeta.")
     st.stop()
+try:
+    from hungaro import resolver_asignacion_optima
+except Exception as e:
+    st.error("No pude importar 'hungaro.resolver_asignacion_optima'. Asegurate de que el archivo hungaro.py esté en la misma carpeta.")
+    st.stop()
+
 
 ALLOWED_BONUS = ["Premier", "La Liga", "Serie A", "Bundesliga", "Ligue 1", "Eredivisie"]
 
@@ -62,19 +68,17 @@ def init_episode_state(ligas, G, name_to_idx, league_to_idx, bonus_name, policy_
     if "no_usados" not in st.session_state:
         st.session_state["no_usados"] = list(name_to_idx.keys()) # lista de nombres
 
+
 def main():
     st.set_page_config(page_title="Rup-IA", page_icon="⚽", layout="centered")
     st.title("⚽ Rup-IA")
     st.caption("Simulador de estrategia óptima para el reto de los 7500 goles.")
 
-    # === Panel de configuración ===
+    # Panel de multiplicador
     with st.expander("❓ ¿Qué liga multiplica hoy?", expanded=True):
-        # CSV: se puede subir o usar ruta local
-        csv_path = "goles_250812.csv"
-
         bonus_name = st.selectbox("Liga con BONUS ×3", ALLOWED_BONUS, index=0)
 
-        # Mapeo liga->archivo de política (ajustá nombres según tus archivos reales)
+        # Mapeo liga -> archivo de politica
         policy_by_bonus = {
             "Premier": "policy_premier.npy",
             "La Liga": "policy_laliga.npy",
@@ -89,7 +93,7 @@ def main():
     # Cargar dataset si se presionó "Iniciar"
     if start_btn:
         try:
-            df, jugadores, ligas, G, name_to_idx, league_to_idx = load_goles(csv_path)
+            df, jugadores, ligas, G, name_to_idx, league_to_idx = load_goles("goles_250812.csv")
         except Exception as e:
             st.error(f"Error al leer el CSV: {e}")
             st.stop()
@@ -117,10 +121,6 @@ def main():
         # Autocompletar por nombre
         no_usados = [j for j in jugadores if name_to_idx[j] not in st.session_state["usados"]]
 
-        # Valor por defecto estable:
-        #if "sel_jugador" not in st.session_state or st.session_state["sel_jugador"] not in no_usados:
-            #st.session_state["sel_jugador"] = (no_usados[0] if no_usados else None)
-
         col1, col2 = st.columns([2,1], vertical_alignment="bottom")
         with col1:
             jugador_sel = st.selectbox(
@@ -138,6 +138,8 @@ def main():
             else:
                 best_slot = assigner.assign_next(pid)
                 liga_asignada = ligas[best_slot]
+                if ligas[best_slot].upper() == bonus_name.upper():
+                    liga_asignada += " (x3)"
                 valor = float(GM[pid, best_slot])
                 st.session_state["total"] += valor
                 st.session_state["usados"].add(pid)
@@ -151,10 +153,27 @@ def main():
     # Mostrar estado
     st.divider()
     st.subheader("📊 Estado del juego")
-    st.metric("Puntaje acumulado", int(st.session_state["total"]))
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Puntaje acumulado", int(st.session_state["total"]))
+    with col2:
+        # Mostrar puntaje optimo (algoritmo hungaro)
+        if assigner.is_finished():
+            submatriz = st.session_state["GM"][list(st.session_state.usados), :]
+            puntaje_optimo = int(resolver_asignacion_optima(submatriz))
+            st.metric("Puntaje óptimo", puntaje_optimo)
+    with col3:
+        if assigner.is_finished():
+            porcentaje = round(100*st.session_state["total"]/puntaje_optimo)
+            st.metric("Eficiencia de la IA", str(porcentaje)+"%")
+
+    if assigner.is_finished():
+        st.caption("El puntaje óptimo es el máximo puntaje que podría obtenerse reordenando los 16 jugadores obtenidos.")
+
     libres = assigner.categories_left()
     ligas_libres = [ligas[i] if ligas[i].upper() != bonus_name.upper() else ligas[i] + " (x3)" for i in libres]
-    st.caption(f"Categorías libres: {ligas_libres}")
+    if len(st.session_state.usados) < 16:
+        st.caption(f"Categorías libres: {ligas_libres}")
     if st.session_state["picks"]:
         st.dataframe(pd.DataFrame(st.session_state["picks"]), use_container_width=True)
 
@@ -162,25 +181,29 @@ def main():
     if assigner.is_finished():
         st.balloons()
         st.success(f"🏁 ¡Juego finalizado! Puntaje total: {int(st.session_state['total'])}")
+        if puntaje_optimo == int(st.session_state["total"]):
+            st.success("🏆 ¡La IA encontró la asignación óptima!")
+
 
     # Panel opcional: ranking de mejores próximos (Top-K heurístico)
-    with st.expander("🧠 Sugerencias de próximos jugadores (según policy y estado actual)"):
-        try:
-            mask = assigner.mask
-            candidates = []
-            for name in no_usados[:5000]:
-                t = name_to_idx[name]
-                slot = int(assigner.policy[mask, t])
-                val = float(GM[t, slot])
-                candidates.append((name, ligas[slot], int(val)))
-            top = sorted(candidates, key=lambda x: x[2], reverse=True)[:20]
-            if top:
-                df_top = pd.DataFrame(top, columns=["Jugador", "Liga sugerida", "Valor estimado"])
-                st.dataframe(df_top, use_container_width=True)
-            else:
-                st.write("Sin candidatos (¿ya terminaste el juego?).")
-        except Exception as e:
-            st.info("No se pudieron calcular sugerencias. Detalle: " + str(e))
+    if len(st.session_state.usados) < 16:
+        with st.expander("🧠 Sugerencias de próximos jugadores (según policy y estado actual)"):
+            try:
+                mask = assigner.mask
+                candidates = []
+                for name in no_usados[:5000]:
+                    t = name_to_idx[name]
+                    slot = int(assigner.policy[mask, t])
+                    val = float(GM[t, slot])
+                    candidates.append((name, ligas[slot], int(val)))
+                top = sorted(candidates, key=lambda x: x[2], reverse=True)[:20]
+                if top:
+                    df_top = pd.DataFrame(top, columns=["Jugador", "Liga sugerida", "Valor estimado"])
+                    st.dataframe(df_top, use_container_width=True)
+                else:
+                    st.write("Sin candidatos (¿ya terminaste el juego?).")
+            except Exception as e:
+                st.info("No se pudieron calcular sugerencias. Detalle: " + str(e))
 
 if __name__ == "__main__":
     main()
