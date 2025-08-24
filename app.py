@@ -50,7 +50,6 @@ def init_episode_state(ligas, G, name_to_idx, league_to_idx, bonus_name, policy_
 
     # Estado inicial
     st.session_state["assigner"] = assigner
-    st.session_state["usados"] = set()
     st.session_state["total"] = 0.0
     st.session_state["picks"] = []  # lista de dicts {jugador, liga, valor}
     st.session_state["GM"] = GM
@@ -58,10 +57,14 @@ def init_episode_state(ligas, G, name_to_idx, league_to_idx, bonus_name, policy_
     st.session_state["ligas"] = ligas
     st.session_state["name_to_idx"] = name_to_idx
     st.session_state["jugadores"] = list(name_to_idx.keys())
+    if "usados" not in st.session_state:
+        st.session_state["usados"] = set() # lista de indices
+    if "no_usados" not in st.session_state:
+        st.session_state["no_usados"] = list(name_to_idx.keys()) # lista de nombres
 
 def main():
     st.set_page_config(page_title="Rup-IA", page_icon="⚽", layout="centered")
-    st.title("🤖⚽ Rup-IA")
+    st.title("⚽ Rup-IA")
     st.caption("Simulador de estrategia óptima para el reto de los 7500 goles.")
 
     # === Panel de configuración ===
@@ -106,30 +109,44 @@ def main():
     name_to_idx = st.session_state["name_to_idx"]
     jugadores = st.session_state["jugadores"]
 
-    st.divider()
-    st.subheader("👤 Ingreso de jugadores")
+    # Seleccionar jugador (si aun no se seleccionaron los 16)
+    if len(st.session_state.usados) < 16:
+        st.divider()
+        st.subheader("👤 Ingreso de jugadores")
 
-    # Autocompletar por nombre
-    no_usados = [j for j in jugadores if name_to_idx[j] not in st.session_state["usados"]]
-    col1, col2 = st.columns([2,1], vertical_alignment="bottom")
-    with col1:
-        jugador_sel = st.selectbox("Elegí un jugador:", no_usados, index=0 if no_usados else None, key="sel_jugador")
-    with col2:
-        confirmar = st.button("✅ Asignar automáticamente")
+        # Autocompletar por nombre
+        no_usados = [j for j in jugadores if name_to_idx[j] not in st.session_state["usados"]]
 
-    if confirmar and no_usados:
-        pid = name_to_idx[jugador_sel]
-        if pid in st.session_state["usados"]:
-            st.warning("Ese jugador ya fue elegido. Probá con otro.")
-        else:
-            best_slot = assigner.assign_next(pid)
-            liga_asignada = ligas[best_slot]
-            valor = float(GM[pid, best_slot])
-            st.session_state["total"] += valor
-            st.session_state["usados"].add(pid)
-            st.session_state["picks"].append({"Jugador": jugador_sel, "Liga": liga_asignada, "Valor": int(valor)})
+        # Valor por defecto estable:
+        #if "sel_jugador" not in st.session_state or st.session_state["sel_jugador"] not in no_usados:
+            #st.session_state["sel_jugador"] = (no_usados[0] if no_usados else None)
 
-            st.success(f"✅ {jugador_sel} → {liga_asignada} | Puntos: {int(valor)} | Total: {int(st.session_state['total'])}")
+        col1, col2 = st.columns([2,1], vertical_alignment="bottom")
+        with col1:
+            jugador_sel = st.selectbox(
+                "Elegí un jugador:", 
+                st.session_state.no_usados,
+                key="sel_jugador"
+            )
+        with col2:
+            confirmar = st.button("✅ Asignar automáticamente")
+
+        if confirmar:
+            pid = name_to_idx[jugador_sel]
+            if pid in st.session_state["usados"]:
+                st.warning("Ese jugador ya fue elegido. Probá con otro.")
+            else:
+                best_slot = assigner.assign_next(pid)
+                liga_asignada = ligas[best_slot]
+                valor = float(GM[pid, best_slot])
+                st.session_state["total"] += valor
+                st.session_state["usados"].add(pid)
+                st.session_state["no_usados"].remove(jugador_sel)
+                st.session_state["picks"].append({"Jugador": jugador_sel, "Liga": liga_asignada, "Valor": int(valor)})
+                st.rerun()
+
+                st.success(f"✅ {jugador_sel} → {liga_asignada} | Puntos: {int(valor)} | Total: {int(st.session_state['total'])}")
+
 
     # Mostrar estado
     st.divider()
